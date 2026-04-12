@@ -1,0 +1,17 @@
+topic: "self-hosting homelabs"
+subreddits:
+  - selfhosted
+  - homelab
+  - datahoarder
+search_queries:
+  - "started my homelab"
+  - "migrated away from"
+limits:
+  posts_per_sub: 50
+  comments_per_post: 15
+  time_window: "year"
+  max_usd: 3.0
+avatars:
+  target_count: null   # auto 1–4
+output:
+  path: "output/avatars/"

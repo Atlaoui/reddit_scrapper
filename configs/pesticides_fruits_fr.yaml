@@ -1,0 +1,30 @@
+topic: "pesticides dans les fruits (France)"
+subreddits:
+  - france
+  - AskFrance
+  - ecologie
+  - EnoughMacronSpam
+  - Jardinage
+  - Cuisine
+  - nutrition_fr
+  - Parentsfr
+  - Frugal_fr
+  - vosfinances
+search_queries:
+  - "pesticides fruits"
+  - "glyphosate"
+  - "dirty dozen"
+  - "résidus pesticides"
+  - "bio vs conventionnel"
+  - "laver pesticides"
+  - "perturbateurs endocriniens"
+  - "Générations Futures"
+limits:
+  posts_per_sub: 50
+  comments_per_post: 15
+  time_window: "year"
+  max_usd: 3.0
+avatars:
+  target_count: null
+output:
+  path: "output/avatars/"

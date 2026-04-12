@@ -1,0 +1,62 @@
+---
+topic: {{ report.topic }}
+tags: [avatar, market-research, reddit]
+subreddits: [{% for s in report.subreddits %}{{ s }}{% if not loop.last %}, {% endif %}{% endfor %}]
+generated_at: {{ report.generated_at }}
+run_id: {{ report.run_id }}
+post_count: {{ report.post_count }}
+signal_count: {{ report.signal_count }}
+cost_usd: {{ "%.4f"|format(report.cost_usd) }}
+---
+
+# {{ report.topic }} — Reddit Avatars
+
+*Run {{ report.run_id }} · {{ report.post_count }} posts · {{ report.signal_count }} signals · ${{ "%.2f"|format(report.cost_usd) }}*
+
+**Why {{ report.avatars|length }} avatar{{ "s" if report.avatars|length != 1 else "" }}?** {{ report.cluster_justification }}
+
+{% for a in report.avatars %}
+---
+
+## {{ loop.index }}. {{ a.name }}
+
+**Thesis.** {{ a.thesis }}
+
+### Demographics
+{% for b in a.demographics %}- {{ b }}
+{% endfor %}
+
+### Pains
+{% for b in a.pains %}- {{ b }}
+{% endfor %}
+
+### Desires
+{% for b in a.desires %}- {{ b }}
+{% endfor %}
+
+### Jobs to be Done
+{% for b in a.jtbd %}- {{ b }}
+{% endfor %}
+
+### Vocabulary
+{% for b in a.vocabulary %}- {{ b }}
+{% endfor %}
+
+### Beliefs
+{% for b in a.beliefs %}- {{ b }}
+{% endfor %}
+
+### Representative quotes
+{% for q in a.representative_quotes %}> {{ q.text }}
+> — [{{ q.post_id }}](https://reddit.com/{{ q.post_id }})
+
+{% endfor %}
+
+<details><summary>Cited posts ({{ a.citations|length }})</summary>
+
+{% for pid in a.citations %}- [{{ pid }}](https://reddit.com/{{ pid }})
+{% endfor %}
+
+</details>
+
+{% endfor %}

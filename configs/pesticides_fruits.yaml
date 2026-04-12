@@ -1,0 +1,26 @@
+topic: "pesticides in fruits"
+subreddits:
+  - organic
+  - HealthyFood
+  - nutrition
+  - EatCheapAndHealthy
+  - gardening
+  - permaculture
+  - Frugal
+  - Parenting
+search_queries:
+  - "pesticides fruit"
+  - "dirty dozen"
+  - "wash pesticides"
+  - "organic vs conventional"
+  - "glyphosate"
+  - "pesticide residue"
+limits:
+  posts_per_sub: 50
+  comments_per_post: 15
+  time_window: "year"
+  max_usd: 3.0
+avatars:
+  target_count: null   # auto 1–4
+output:
+  path: "output/avatars/"
