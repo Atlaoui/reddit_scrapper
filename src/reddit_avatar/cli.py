@@ -9,7 +9,7 @@ import typer
 from rich.console import Console
 
 from .cluster import cluster as cluster_stage
-from .config import TopicConfig
+from .config import Limits, TopicConfig
 from .extract import extract_all
 from .harvest import harvest as harvest_stage
 from .lint import lint_file
@@ -17,6 +17,7 @@ from .llm import LLM
 from .render import render_report
 from .schemas import Report
 from .store import Store
+from .suggest import suggest_subreddits
 from .synthesize import synthesize
 
 app = typer.Typer(add_completion=False, help="Reddit → avatar markdown report pipeline.")
@@ -30,14 +31,9 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
-@app.command()
-def run(
-    config: Path = typer.Argument(..., exists=True, readable=True),
-    verbose: bool = typer.Option(False, "-v", "--verbose"),
-):
-    """End-to-end: harvest → extract → cluster → synthesize → render."""
+def _run_pipeline(cfg: TopicConfig, verbose: bool) -> None:
+    """Shared pipeline: harvest → extract → cluster → synthesize → render → lint."""
     _setup_logging(verbose)
-    cfg = TopicConfig.load(config)
     store = Store()
     llm = LLM()
     run_id = store.start_run(cfg.topic, cfg.fingerprint())
@@ -90,6 +86,41 @@ def run(
         raise
     finally:
         store.close()
+
+
+@app.command()
+def run(
+    config: Path = typer.Argument(..., exists=True, readable=True),
+    verbose: bool = typer.Option(False, "-v", "--verbose"),
+):
+    """End-to-end: harvest → extract → cluster → synthesize → render."""
+    cfg = TopicConfig.load(config)
+    _run_pipeline(cfg, verbose)
+
+
+@app.command()
+def discover(
+    demand: str = typer.Argument(..., help="Natural language research intent"),
+    verbose: bool = typer.Option(False, "-v", "--verbose"),
+    max_usd: float = typer.Option(5.0, "--max-usd", help="Cost cap in USD"),
+    posts_per_sub: int = typer.Option(50, "--posts", help="Posts to fetch per subreddit"),
+):
+    """Ask LLM to suggest subreddits from a demand, then run the full pipeline."""
+    _setup_logging(verbose)
+    llm = LLM()
+    console.print("[yellow]Asking LLM to suggest subreddits…[/]")
+    suggestion = suggest_subreddits(demand, llm)
+    console.print(f"  topic      : [bold]{suggestion.topic}[/]")
+    console.print(f"  subreddits : {suggestion.subreddits}")
+    console.print(f"  queries    : {suggestion.search_queries}")
+
+    cfg = TopicConfig(
+        topic=suggestion.topic,
+        subreddits=suggestion.subreddits,
+        search_queries=suggestion.search_queries,
+        limits=Limits(posts_per_sub=posts_per_sub, max_usd=max_usd),
+    )
+    _run_pipeline(cfg, verbose)
 
 
 @app.command("harvest")

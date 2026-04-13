@@ -1,4 +1,4 @@
-"""Thin Anthropic client wrapper: JSON output, cost logging, model tiers."""
+"""Thin OpenRouter client wrapper: JSON output, cost logging, model tiers."""
 from __future__ import annotations
 
 import hashlib
@@ -9,18 +9,22 @@ import re
 from pathlib import Path
 from typing import Any
 
-from anthropic import Anthropic
+from openai import OpenAI
 
 log = logging.getLogger(__name__)
 
-HAIKU = "claude-haiku-4-5-20251001"
-OPUS = "claude-opus-4-6"
+OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gemma3")
 
-# Rough USD per 1M tokens (input, output). Update if Anthropic pricing shifts.
-PRICING: dict[str, tuple[float, float]] = {
-    HAIKU: (1.00, 5.00),
-    OPUS: (15.00, 75.00),
-}
+FAST_MODEL = DEFAULT_MODEL
+SMART_MODEL = DEFAULT_MODEL
+
+# Keep legacy names as aliases so existing callers (extract.py, cluster.py, synthesize.py)
+# continue to import without changes.
+HAIKU = FAST_MODEL
+OPUS = SMART_MODEL
+
+PRICING: dict[str, tuple[float, float]] = {}  # local models are free
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 
@@ -46,15 +50,12 @@ def _extract_json(text: str) -> Any:
 
 class LLM:
     def __init__(self, api_key: str | None = None):
-        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not key:
-            raise RuntimeError("ANTHROPIC_API_KEY not set")
-        self.client = Anthropic(api_key=key)
+        self.client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE)
         self.total_usd = 0.0
 
     def _track(self, model: str, usage: Any) -> float:
         in_rate, out_rate = PRICING.get(model, (0.0, 0.0))
-        cost = (usage.input_tokens * in_rate + usage.output_tokens * out_rate) / 1_000_000
+        cost = (usage.prompt_tokens * in_rate + usage.completion_tokens * out_rate) / 1_000_000
         self.total_usd += cost
         return cost
 
@@ -65,17 +66,31 @@ class LLM:
         user: str,
         max_tokens: int = 4096,
     ) -> tuple[Any, float]:
-        """Single-turn call; return (parsed_json, usd_cost)."""
-        resp = self.client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-        cost = self._track(model, resp.usage)
-        try:
-            return _extract_json(text), cost
-        except Exception as e:
-            log.error("JSON parse failed: %s\n---\n%s", e, text[:500])
-            raise
+        """Single-turn call; return (parsed_json, usd_cost). Retries once if model returns prose."""
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        total_cost = 0.0
+
+        for attempt in range(2):
+            resp = self.client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=messages,
+                response_format={"type": "json_object"},
+            )
+            text = resp.choices[0].message.content or ""
+            total_cost += self._track(model, resp.usage)
+            try:
+                return _extract_json(text), total_cost
+            except Exception as e:
+                if attempt == 0:
+                    log.warning("JSON parse failed (attempt 1), retrying: %s", e)
+                    messages += [
+                        {"role": "assistant", "content": text},
+                        {"role": "user", "content": "Your response was not valid JSON. Reply with ONLY the JSON object, no prose, no markdown."},
+                    ]
+                else:
+                    log.error("JSON parse failed after retry: %s\n---\n%s", e, text[:500])
+                    raise
