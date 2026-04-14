@@ -32,3 +32,53 @@ Reports land in `./output/avatars/`.
 ## Config
 
 See `configs/example_homelab.yaml`.
+
+
+## Overall 
+
+  ---
+  1. reddit-avatar discover "<your demand>"
+
+  You type a free-text research intent, e.g.:
+
+  ▎ "I want to understand people building their first homelab"
+
+  ---
+  2. LLM suggests subreddits (suggest.py)
+
+  Gemma3 (via Ollama) reads your demand and returns:
+  - A short topic label (e.g. "homelab beginners")
+  - 4–8 relevant subreddits (e.g. homelab, selfhosted, DataHoarder)
+  - 3–6 search queries (currently unused since we skip search)
+
+  ---
+  3. Harvest (harvest.py)
+
+  A headless Chrome browser visits each subreddit's /top.json, collects the top posts, then fetches comments for
+   each post. Everything is cached on disk so re-runs are instant.
+
+  ---
+  4. Extract signals (extract.py)
+
+  For each post, Gemma3 reads the title + body + comments and extracts:
+  - Pains, desires, vocabulary, demographics, jobs-to-be-done, verbatim quotes
+
+  ---
+  5. Cluster (cluster.py)
+
+  Gemma3 groups all signals into 1–4 distinct user archetypes and justifies the number.
+
+  ---
+  6. Synthesize (synthesize.py)
+
+  Gemma3 writes a PhD-depth profile for each archetype — demographics, motivations, fears, language patterns —
+  with every claim citing the post it came from.
+
+  ---
+  7. Render + Lint (render.py, lint.py)
+
+  The profiles are written to a Markdown file in output/avatars/. A linter then checks that ≥80% of bullet
+  points have citations.
+
+  ---
+  Output: a single Markdown report with richly detailed user avatars grounded in real Reddit discussions.

@@ -73,24 +73,31 @@ class LLM:
         ]
         total_cost = 0.0
 
-        for attempt in range(2):
+        for attempt in range(3):
             resp = self.client.chat.completions.create(
                 model=model,
                 max_tokens=max_tokens,
                 messages=messages,
-                response_format={"type": "json_object"},
             )
             text = resp.choices[0].message.content or ""
             total_cost += self._track(model, resp.usage)
+            log.debug("LLM response (attempt %d): %s", attempt + 1, text[:300])
             try:
-                return _extract_json(text), total_cost
+                data = _extract_json(text)
+                if isinstance(data, dict) and not data:
+                    raise ValueError("model returned empty JSON object {}")
+                return data, total_cost
             except Exception as e:
-                if attempt == 0:
-                    log.warning("JSON parse failed (attempt 1), retrying: %s", e)
+                if attempt < 2:
+                    log.warning("bad response (attempt %d): %s — retrying", attempt + 1, e)
                     messages += [
                         {"role": "assistant", "content": text},
-                        {"role": "user", "content": "Your response was not valid JSON. Reply with ONLY the JSON object, no prose, no markdown."},
+                        {"role": "user", "content": (
+                            "Your response was empty or not valid JSON. "
+                            "Reply with ONLY a filled-in JSON object matching the schema in the system prompt. "
+                            "No prose, no markdown fences, no explanation."
+                        )},
                     ]
                 else:
-                    log.error("JSON parse failed after retry: %s\n---\n%s", e, text[:500])
+                    log.error("JSON parse failed after 3 attempts: %s\n---\n%s", e, text[:500])
                     raise

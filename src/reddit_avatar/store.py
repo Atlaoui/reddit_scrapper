@@ -10,13 +10,14 @@ from .schemas import Comment, ExtractedSignals, Post
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    topic       TEXT    NOT NULL,
-    config_hash TEXT    NOT NULL,
-    started_at  REAL    NOT NULL,
-    finished_at REAL,
-    cost_usd    REAL    DEFAULT 0,
-    status      TEXT    DEFAULT 'running'
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic        TEXT    NOT NULL,
+    config_hash  TEXT    NOT NULL,
+    started_at   REAL    NOT NULL,
+    finished_at  REAL,
+    cost_usd     REAL    DEFAULT 0,
+    status       TEXT    DEFAULT 'running',
+    cluster_json TEXT
 );
 CREATE TABLE IF NOT EXISTS posts (
     id          TEXT PRIMARY KEY,
@@ -66,9 +67,21 @@ class Store:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        # Migrate: add cluster_json column if it didn't exist yet
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(runs)")}
+        if "cluster_json" not in cols:
+            self.conn.execute("ALTER TABLE runs ADD COLUMN cluster_json TEXT")
         self.conn.commit()
 
     # --- runs ---
+    def find_run(self, config_hash: str) -> int | None:
+        """Return the most recent non-errored run_id for this config, or None."""
+        row = self.conn.execute(
+            "SELECT id FROM runs WHERE config_hash = ? AND status != 'error' ORDER BY id DESC LIMIT 1",
+            (config_hash,),
+        ).fetchone()
+        return int(row["id"]) if row else None
+
     def start_run(self, topic: str, config_hash: str) -> int:
         cur = self.conn.execute(
             "INSERT INTO runs (topic, config_hash, started_at) VALUES (?, ?, ?)",
@@ -138,6 +151,25 @@ class Store:
             body=row["body"] or "", author=row["author"], score=row["score"],
             url=row["url"], created_utc=row["created_utc"], comments=comments,
         )
+
+    def save_cluster(self, run_id: int, cluster_json: str) -> None:
+        self.conn.execute(
+            "UPDATE runs SET cluster_json = ? WHERE id = ?", (cluster_json, run_id)
+        )
+        self.conn.commit()
+
+    def get_cluster(self, run_id: int) -> str | None:
+        row = self.conn.execute(
+            "SELECT cluster_json FROM runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        return row["cluster_json"] if row else None
+
+    def get_avatars(self, run_id: int) -> list[str] | None:
+        """Return saved profile_json strings for this run, or None if none exist."""
+        rows = self.conn.execute(
+            "SELECT profile_json FROM avatars WHERE run_id = ? ORDER BY id", (run_id,)
+        ).fetchall()
+        return [r["profile_json"] for r in rows] if rows else None
 
     # --- signals ---
     def has_signal(self, post_id: str, prompt_version: str) -> bool:

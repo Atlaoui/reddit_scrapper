@@ -1,9 +1,18 @@
 """Pydantic schemas for posts, signals, avatars."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _coerce_to_list(v: Any) -> list:
+    """Accept a string or None where a list is expected — local models often do this."""
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [v] if v.strip() else []
+    return v
 
 SignalKind = Literal["pain", "desire", "vocabulary", "demographic", "jtbd"]
 
@@ -42,6 +51,10 @@ class ExtractedSignals(BaseModel):
     jtbd: list[str] = Field(default_factory=list)
     verbatim_quotes: list[Quote] = Field(default_factory=list)
 
+    _coerce = field_validator(
+        "pains", "desires", "vocabulary", "demographic_tells", "jtbd", mode="before"
+    )(classmethod(lambda cls, v: _coerce_to_list(v)))
+
 
 class AvatarStub(BaseModel):
     """Output of the clustering step."""
@@ -67,8 +80,13 @@ class AvatarProfile(BaseModel):
     jtbd: list[str]
     vocabulary: list[str]
     beliefs: list[str]
-    representative_quotes: list[Quote]
-    citations: list[str]  # post_ids referenced by this avatar
+    representative_quotes: list[Quote] = Field(default_factory=list)
+    citations: list[str] = Field(default_factory=list)
+
+    _coerce = field_validator(
+        "demographics", "pains", "desires", "jtbd", "vocabulary", "beliefs", "citations",
+        mode="before",
+    )(classmethod(lambda cls, v: _coerce_to_list(v)))
 
 
 class Report(BaseModel):

@@ -15,7 +15,7 @@ from .harvest import harvest as harvest_stage
 from .lint import lint_file
 from .llm import LLM
 from .render import render_report
-from .schemas import Report
+from .schemas import AvatarProfile, ClusterResult, Report
 from .store import Store
 from .suggest import suggest_subreddits
 from .synthesize import synthesize
@@ -32,31 +32,60 @@ def _setup_logging(verbose: bool) -> None:
 
 
 def _run_pipeline(cfg: TopicConfig, verbose: bool) -> None:
-    """Shared pipeline: harvest → extract → cluster → synthesize → render → lint."""
+    """Shared pipeline: harvest → extract → cluster → synthesize → render → lint.
+
+    Resumes an existing run if the same config was seen before, skipping stages
+    that already completed successfully.
+    """
     _setup_logging(verbose)
     store = Store()
     llm = LLM()
-    run_id = store.start_run(cfg.topic, cfg.fingerprint())
-    console.print(f"[bold cyan]Run {run_id}[/] — {cfg.topic}")
+
+    config_hash = cfg.fingerprint()
+    existing_run = store.find_run(config_hash)
+    if existing_run:
+        run_id = existing_run
+        console.print(f"[bold cyan]Resuming run {run_id}[/] — {cfg.topic}")
+    else:
+        run_id = store.start_run(cfg.topic, config_hash)
+        console.print(f"[bold cyan]Run {run_id}[/] — {cfg.topic}")
 
     try:
+        # Stage 1: Harvest (HTTP responses are disk-cached; posts are upserted)
         console.print("[yellow]Harvesting…[/]")
         n_posts = harvest_stage(cfg, store)
         console.print(f"  fetched {n_posts} posts")
 
+        # Stage 2: Extract (skips posts already processed for this prompt version)
         console.print("[yellow]Extracting signals…[/]")
         n_sig = extract_all(run_id, store, llm)
-        console.print(f"  extracted {n_sig} new posts · ${llm.total_usd:.4f}")
+        if n_sig:
+            console.print(f"  extracted {n_sig} new posts · ${llm.total_usd:.4f}")
+        else:
+            console.print("  [dim]all signals already cached[/]")
 
         if cfg.limits.max_usd and llm.total_usd > cfg.limits.max_usd:
             raise RuntimeError(f"cost cap hit: ${llm.total_usd:.2f} > ${cfg.limits.max_usd:.2f}")
 
-        console.print("[yellow]Clustering…[/]")
-        clusters = cluster_stage(run_id, store, llm, cfg.avatars.target_count)
+        # Stage 3: Cluster (cached in runs.cluster_json)
+        cached_cluster = store.get_cluster(run_id)
+        if cached_cluster:
+            console.print("[yellow]Clustering…[/] [dim](cached)[/]")
+            clusters = ClusterResult.model_validate_json(cached_cluster)
+        else:
+            console.print("[yellow]Clustering…[/]")
+            clusters = cluster_stage(run_id, store, llm, cfg.avatars.target_count)
+            store.save_cluster(run_id, clusters.model_dump_json())
         console.print(f"  N={len(clusters.avatars)} — {clusters.n_justification}")
 
-        console.print("[yellow]Synthesizing avatars…[/]")
-        profiles = synthesize(run_id, store, llm, clusters)
+        # Stage 4: Synthesize (cached in avatars table)
+        cached_profiles = store.get_avatars(run_id)
+        if cached_profiles:
+            console.print("[yellow]Synthesizing avatars…[/] [dim](cached)[/]")
+            profiles = [AvatarProfile.model_validate_json(p) for p in cached_profiles]
+        else:
+            console.print("[yellow]Synthesizing avatars…[/]")
+            profiles = synthesize(run_id, store, llm, clusters)
 
         signal_count = len(store.signals_for_run(run_id))
         report = Report(

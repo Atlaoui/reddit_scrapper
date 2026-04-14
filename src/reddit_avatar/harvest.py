@@ -108,16 +108,13 @@ def harvest(cfg: TopicConfig, store: Store) -> int:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     seen: set[str] = set()
 
+    log.info("subreddits to scrape: %s", ", ".join(f"r/{s}" for s in cfg.subreddits))
     log.info("Starting headless Chrome…")
     driver = _make_driver()
     try:
         for sub in cfg.subreddits:
-            urls = (
-                [_search_url(sub, q, cfg.limits.time_window, cfg.limits.posts_per_sub)
-                 for q in cfg.search_queries]
-                if cfg.search_queries
-                else [_listing_url(sub, cfg.limits.time_window, cfg.limits.posts_per_sub)]
-            )
+            # Reddit search requires OAuth — always fall back to /top.json
+            urls = [_listing_url(sub, cfg.limits.time_window, cfg.limits.posts_per_sub)]
             for url in urls:
                 listing = _fetch(driver, url)
                 for pd in _parse_listing(listing):
